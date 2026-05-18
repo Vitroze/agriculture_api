@@ -33,7 +33,7 @@ def test_login():
     else:
         print("Test failed: Status code", response.status_code, "Response:", response.text)
 
-# sType,sToken = test_login()
+sType,sToken = test_login()
 # print("Token type:", sType, "Token:", sToken)
 
 def last_news(sType, sToken):
@@ -69,59 +69,96 @@ def update_location(sType, sToken):
         print("Test failed: Status code", response.status_code, "Response:", response.text)
 # update_location(sType, sToken)
 
-from bs4 import BeautifulSoup
-import re
+def get_disease(sType, sToken):
+    headers = {
+        "Authorization": f"{sType} {sToken}",
+    }
 
-# Ton texte brut issu du flux XML
-html_description = """
-<div data-history-node-id="2214" class="layout layout--onecol"> 
-    <div class="layout__region layout__region--content"> 
-        <div class="clearfix text-formatted field field--name-field-intro-bhv field--type-text-long field--label-hidden field__item">
-            <p><strong>Le Bulletin hebdomadaire de veille sanitaire internationale en santé animale (BHVSI-SA)</strong> est élaboré...</p> 
-            <p>Le BHVSI-SA rapporte et met en perspective des signaux...</p> 
-            <p><em>Ce bulletin n’engage que son comité de rédaction...</em></p> 
-        </div> 
-        <div class="field field--name-field-numero-du-bulletin field--type-integer field--label-inline clearfix"> 
-            <div class="field__label">Numéro du bulletin</div> 
-            <div class="field__item">18</div> 
-        </div> 
-        <div class="field field--name-node-post-date field--type-ds field--label-hidden field__item">05/05/2026 - 16:36</div> 
-    </div> 
-</div>
-"""
+    response = requests.get(sURL + "get_all_disease", headers=headers)
+    if response.status_code == 200:
+        print("Test passed: Received response:", response.json())
+    else:        
+        print("Test failed: Status code", response.status_code, "Response:", response.text)
+get_disease(sType, sToken)
 
-def nettoyer_donnees_esa(html_content):
-    soup = BeautifulSoup(html_content, "html.parser")
+# from bs4 import BeautifulSoup
+# import re
+
+# # Ton texte brut issu du flux XML
+# html_description = """
+# <div data-history-node-id="2201" class="layout layout--onecol">
+#   <div class="layout__region layout__region--content">
+#     <div class="field field--name-field-image-logo-vsi field--type-entity-reference field--label-hidden field__item">
+#       <img loading="lazy" src="https://www.plateforme-esa.fr/sites/default/files/styles/medium/public/2021-09/VSI%20Plateforme%20ESA%20-%20Copie.png?itok=MhJlI8KS" width="220" height="72" alt="Logo VSI" class="img-fluid image-style-medium"> 
+#     </div> 
     
-    # 1. EXTRACTION DE LA DESCRIPTION PURE
-    # On cible la div qui contient spécifiquement l'introduction textuelle
-    div_intro = soup.find("div", class_="field--name-field-intro-bhv")
+#     <div class="clearfix text-formatted field field--name-field-intro-bhv field--type-text-long field--label-hidden field__item">
+#       <p><strong>Le Bulletin hebdomadaire de veille sanitaire internationale en santé animale (BHVSI-SA)</strong> est élaboré dans le cadre de la thématique Veille Sanitaire Internationale (VSI) de la Plateforme. Il est produit par un comité de rédaction regroupant des personnes de l’Anses, du Cirad, de la DGAl et de INRAE. Les informations, systématiquement sourcées, sont issues des notifications officielles des Etats,&nbsp;de sources non officielles (presse, internet) ainsi que d’un réseau national et international d’experts.</p> <p>Le BHVSI-SA rapporte et met en perspective des signaux et des alertes en santé animale au niveau national et international. Il est publié chaque mardi et concerne les événements de la semaine précédente.</p> 
+#       <p><em>Ce bulletin n’engage que son comité de rédaction et non les organismes membres de la Plateforme. Pour toutes questions: <a href="mailto:plateforme.esa@anses.fr">plateforme-esa@anses.fr</a></em></p> 
+#       <p><a class="btn btn-info btn-lg" href="https://www.plateforme-esa.fr/bulletins-hebdomadaires-de-veille-sanitaire-internationale-" target="_blank">
+#         <span class="text">Accédez à tous les BHVSI-SA </span>&nbsp;
+#         <i class="fa fa-icon-right fa-chevron-right" style="word-spacing: -1em;">&nbsp;</i> 
+#       </a></p> 
+#     </div> 
     
-    if div_intro:
-        # On extrait le texte brut en séparant les paragraphes par un espace
-        description_propre = div_intro.get_text(separator=" ", strip=True)
-    else:
-        # Solution de secours si la structure change : on prend tout le texte sans la date
-        description_propre = soup.get_text(separator=" ", strip=True)
-
-    # 2. EXTRACTION DE LA DATE
-    # On cible la div qui contient la date de publication
-    div_date = soup.find("div", class_="field--name-node-post-date")
-    date_propre = ""
+#     <div class="field field--name-field-fichier-pdf-associe field--type-file field--label-hidden field__item">
+#       <iframe class="pdf" webkitallowfullscreen mozallowfullscreen allowfullscreen frameborder="no" width="100%" height="1300px" src="https://www.plateforme-esa.fr/libraries/pdf.js/web/viewer.html?file=https%3A%2F%2Fwww.plateforme-esa.fr%2Fsites%2Fdefault%2Ffiles%2F2026-04%2F2026-04-28-BHVSI-SA_0.pdf#page=1&amp;zoom=auto&amp;pagemode=bookmarks" data-src="https://www.plateforme-esa.fr/sites/default/files/2026-04/2026-04-28-BHVSI-SA_0.pdf" title="2026-04-28-BHVSI-SA_0.pdf"></iframe> 
+#     </div> 
     
-    if div_date:
-        texte_date = div_date.get_text(strip=True)
-        # On utilise une expression régulière pour extraire uniquement le format DD/MM/YYYY
-        match_date = re.search(r'(\d{2}/\d{2}/\d{4})', texte_date)
-        if match_date:
-            date_propre = match_date.group(1)
-            
-    return description_propre, date_propre
+#     <div class="field field--name-field-numero-du-bulletin field--type-integer field--label-inline clearfix"> 
+#       <div class="field__label">Numéro du bulletin</div> 
+#       <div class="field__item">17</div> 
+#     </div> 
+    
+#     <div class="field field--name-node-post-date field--type-ds field--label-hidden field__item">28/04/2026 - 16:10</div> 
+#   </div> 
+# </div> 
+# """
 
-# Test du script
-description, date_pub = nettoyer_donnees_esa(html_description)
+# import html
+# def nettoyer_donnees_esa(html_content):
+#     # Regex d'origine qui cible la div complète pour ne rien rater
+#     r = re.compile(
+#         r'<div[^>]*class=["\']clearfix text-formatted field field--name-field-intro-bhv field--type-text-long field--label-hidden field__item["\'][^>]*>([\s\S]*?)<\/div>', 
+#         re.DOTALL
+#     )
+#     match = r.search(html_content)
+    
+#     if match:
+#         raw_description = match.group(1).strip()
+        
+#         # 1. Nettoyage initial des balises et entités HTML
+#         description = re.sub(r'<[^>]+>', '', raw_description)
+#         description = html.unescape(description)
+#         description = re.sub(r'\s+', ' ', description).strip()
+        
+#         # 2. Suppression stricte des phrases demandées
+#         phrase_engagement = "Ce bulletin n’engage que son comité de rédaction et non les organismes membres de la Plateforme. Pour toutes questions: plateforme-esa@anses.fr"
+#         phrase_acces = "Accédez à tous les BHVSI-SA"
+        
+#         description = description.replace(phrase_engagement, "")
+#         description = description.replace(phrase_acces, "")
+        
+#         # Nettoyage final des espaces superflus créés par la suppression
+#         description = re.sub(r'\s+', ' ', description).strip()
+        
+#         print("=== DESCRIPTION PROPRE ===")
+#         print(description)
+#     else:
+#         description = "Description non trouvée"
+#         print(description)
 
-print("=== DESCRIPTION PROPRE ===")
-print(description)
-print("\n=== DATE SÉPARÉE ===")
-print(date_pub)
+#     # Extraction de la date (inchangée)
+#     r_date = re.compile(
+#         r'<div[^>]*class=["\']field field--name-node-post-date field--type-ds field--label-hidden field__item["\'][^>]*>(.*?)<\/div>', 
+#         re.DOTALL
+#     )
+#     match_date = r_date.search(html_content)
+#     date_pub = match_date.group(1).strip() if match_date else "Date de publication non trouvée"
+
+#     return description, date_pub
+# # Test du script
+# description = nettoyer_donnees_esa(html_description)
+
+# print("=== DESCRIPTION PROPRE ===")
+# print(description)

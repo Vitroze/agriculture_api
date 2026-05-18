@@ -13,6 +13,8 @@ import httpx
 import jwt
 import uvicorn
 import re
+import html
+
 
 load_dotenv()
 API = Api(os.getenv("AIRTABLE_TOKEN"))
@@ -160,43 +162,52 @@ async def last_news(current_user: str = Depends(get_current_user)):
             "description": description.strip(),
             "date": date.strip()
         })
-    # for match in matches:
-    #     link, title, description, date = match
-    #     news_items.append({
-    #         "title": title.strip(),
-    #         "link": "https://agriculture.gouv.fr" + link.strip(),
-    #         "description": description.strip(),
-    #         "date": date.strip()
-    #     })
 
     return {"news": news_items}
 
-def clear_esa(soup):
-    div_intro = soup.find("div", class_="field--name-field-intro-bhv")
+def clear_esa(html_content): 
+    r = re.compile(
+        r'<div[^>]*class=["\']clearfix text-formatted field field--name-field-intro-bhv field--type-text-long field--label-hidden field__item["\'][^>]*>([\s\S]*?)<\/div>', 
+        re.DOTALL
+    )
+    match = r.search(html_content)
     
-    if div_intro:
-        # On extrait le texte brut en séparant les paragraphes par un espace
-        description_propre = div_intro.get_text(separator=" ", strip=True)
+    if match:
+        raw_description = match.group(1).strip()
+        
+        description = re.sub(r'<[^>]+>', '', raw_description)
+        description = html.unescape(description)
+        description = re.sub(r'\s+', ' ', description).strip()
+        
+        phrase_engagement = "Ce bulletin n’engage que son comité de rédaction et non les organismes membres de la Plateforme. Pour toutes questions: plateforme-esa@anses.fr"
+        phrase_acces = "Accédez à tous les BHVSI-SA"
+        
+        description = description.replace(phrase_engagement, "")
+        description = description.replace(phrase_acces, "")
+        
+        description = re.sub(r'\s+', ' ', description).strip()
+        
+        print("=== DESCRIPTION PROPRE ===")
+        print(description)
     else:
-        # Solution de secours si la structure change : on prend tout le texte sans la date
-        description_propre = soup.get_text(separator=" ", strip=True)
+        description = "Description non trouvée"
+        print(description)
 
-    # 2. EXTRACTION DE LA DATE
-    # On cible la div qui contient la date de publication
-    div_date = soup.find("div", class_="field--name-node-post-date")
-    date_propre = ""
-    
-    if div_date:
-        texte_date = div_date.get_text(strip=True)
-        # On utilise une expression régulière pour extraire uniquement le format DD/MM/YYYY
-        match_date = re.search(r'(\d{2}/\d{2}/\d{4})', texte_date)
-        if match_date:
-            date_propre = match_date.group(1)
-            
-    return description_propre, date_propre    
+    r_date = re.compile(
+        r'<div[^>]*class=["\']field field--name-node-post-date field--type-ds field--label-hidden field__item["\'][^>]*>(.*?)<\/div>', 
+        re.DOTALL
+    )
+    match_date = r_date.search(html_content)
+    date_pub = match_date.group(1).strip() if match_date else "Date de publication non trouvée"
+
+    return description, date_pub
 
 def check_flux_epidemiologique():
     print("Checking flux epidemiologique...")
+
+    for record in RSS_TABLE.all():
+        RSS_TABLE.delete(record["id"])
+
     rss = feedparser.parse("https://www.plateforme-esa.fr/fr/rss.xml")
     categories_especes = {
         "Bovins (Vaches, Taureaux, Buffles)": ["bovin", "bovine", "dermatose nodulaire", "tuberculose"],
@@ -214,39 +225,55 @@ def check_flux_epidemiologique():
         texte_brut = soup.get_text(separator=" ").strip()
         
         # 2. Détection automatique de l'espèce animale concernée
-        espece_detectee = "Général / Non spécifié"
+        espece_detectee = "N/A"
         contenu_pour_recherche = (titre + " " + texte_brut).lower()
         
         for espece, mots_cles in categories_especes.items():
             if any(mot in contenu_pour_recherche for mot in mots_cles):
                 espece_detectee = espece
-                break  # On a trouvé l'espèce principale, on arrête la boucle
+                break
         
-        description, date_pub = clear_esa(soup)
+        description, date_pub = clear_esa(entry.description)
         resume = description
 
-        # LOGS DE TEST DANS LE TERMINAL
-        print("\n--- NOUVELLE ALERTE DETECTÉE ---", flush=True)
-        print(f"Titre ({date_pub}): {titre}", flush=True)
-        print(f"Espèce ciblée : {espece_detectee}", flush=True)
-        print(f"Résumé textuel : {resume}", flush=True)
-        print(f"Lien officiel : {lien}", flush=True)
-    
-    if RSS_TABLE.first(formula=f"{{title}}='{titre}'") is None:
-        RSS_TABLE.create({
-            "title": titre,
-            "link": lien,
-            "description": resume,
-            "date": entry.published,
-            "espece": espece_detectee
-        })
+        if RSS_TABLE.first(formula=f"{{title}}='{titre}'") is None:
+            print("\n--- NOUVELLE ALERTE DETECTÉE ---", flush=True)
+            print(f"Titre ({date_pub}): {titre}", flush=True)
+            print(f"Espèce ciblée : {espece_detectee}", flush=True)
+            print(f"Résumé textuel : {resume}", flush=True)
+            print(f"Lien officiel : {lien}", flush=True)
+            
+            RSS_TABLE.create({
+                "title": titre,
+                "link": lien,
+                "description": resume,
+                "date": entry.published,
+                "espece": espece_detectee
+            })
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(check_flux_epidemiologique, 'interval', seconds=5)
+scheduler.add_job(check_flux_epidemiologique, 'interval', minutes=1)
 scheduler.start()
+
+@app.get("/get_all_disease", summary="Get All Disease Alerts", description="Retrieve all disease alerts stored in the database.")
+async def get_disease(current_user: str = Depends(get_current_user)):
+    if not current_user:
+        return {"error": "Unauthorized"}
+
+    records = RSS_TABLE.all()
+    diseases = []
+    for record in records:
+        fields = record.get("fields", {})
+        diseases.append({
+            "title": fields.get("title", "N/A"),
+            "link": fields.get("link", "N/A"),
+            "description": fields.get("description", "N/A"),
+            "date": fields.get("date", "N/A"),
+            "espece": fields.get("espece", "N/A")
+        })
+
+    return {"diseases": diseases}
 
 if __name__ == "__main__":
     import uvicorn
-    # uvicorn main:app --reload --port 8000 ; Refresh automatically when code changes
-    # Stop the server before running the test file, otherwise the test will fail because the server is already running
     uvicorn.run(app, host="127.0.0.1", port=8000)
