@@ -20,11 +20,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception:
         return False
     
-def exist_user(mail: str, siren: str=None, userId: str=None) -> bool:
+def exist_user(mail: str, siren: str = None, userId: str = None) -> bool:
     if siren is not None:
-        record = TABLE.first(formula=f"{{mail}}='{mail}', {{siren}}='{siren}'")
+        formula = f"AND({{mail}}='{mail}', {{siren}}='{siren}')"
+        record = TABLE.first(formula=formula)
     elif userId is not None:
-        record = TABLE.first(formula=f"{{id}}='{userId}', {{mail}}='{mail}'")
+        formula = f"AND({{id}}='{userId}', {{mail}}='{mail}')"
+        record = TABLE.first(formula=formula)
     else:
         record = TABLE.first(formula=f"{{mail}}='{mail}'")
 
@@ -62,14 +64,13 @@ def isConnected(token: HTTPAuthorizationCredentials = Depends(security)):
     user = get_current_user(token)
     return user is not None
 
-def create_user(siret: str, mail: str, password: str):
+def create_user(siren: str, mail: str, password: str):
     if exist_user(mail=mail):
         return False
     
     hashed_password = _hash_password(password)
     TABLE.create({
-        "siren": siret[:9],
-        "siret": siret,
+        "siren": siren,
         "mail": mail,
         "password": hashed_password
     })
