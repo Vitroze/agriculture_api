@@ -59,16 +59,15 @@ async def getSiren(siren: str):
 
         return result
 
-@app.post("/register", summary="User Registration", description="Register a new user with their SIREN number, email, and password.")
 def is_mail_valid(mail: str) -> bool:
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return re.match(pattern, mail) is not None
 
+@app.post("/register", summary="User Registration", description="Register a new user with their SIREN number, email, and password.")
 async def register(request: RegisterRequest):
     compagny_info = await getSiren(str(request.siren))
+
     if not compagny_info.get("siren") or compagny_info["siren"] != request.siren:
-        # return {"error": "Invalid SIREN number"}
-        # Return with HTTP Error
         raise HTTPException(status_code=400, detail="Invalid SIREN number. No company information found.")
 
     if request.mail is None or request.password is None:
@@ -76,15 +75,12 @@ async def register(request: RegisterRequest):
         raise HTTPException(status_code=400, detail="Email and password are required")
 
     if not is_mail_valid(request.mail):
-        print("Invalid email format:", request.mail)
         raise HTTPException(status_code=400, detail="Invalid email format")
 
     if len(request.password) < 6:
-        print("Password must be at least 6 characters long.")
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
 
     if Users.isConnected():
-        print("User already connected. Please log out before registering a new account.")
         raise HTTPException(status_code=400, detail="User already connected. Please log out before registering a new account.")
 
     if Users.exist_user(request.mail, request.siren):
@@ -102,7 +98,6 @@ class LoginRequest(BaseModel):
 async def login(request: LoginRequest):
     user = Users.exist_user(request.mail)
     if not user:
-        # return {"error": "Invalid email or password"}
         raise HTTPException(status_code=400, detail="Invalid email or password")
 
     if not Users.verify_password(request.password, user["fields"]["password"]):
