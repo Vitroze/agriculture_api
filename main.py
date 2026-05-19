@@ -15,6 +15,19 @@ import uvicorn
 import re
 import html
 
+def createEnv():
+    with open(".env", "w") as f:
+        f.write("AIRTABLE_TOKEN=your_airtable_token_here\n")
+        f.write("AIRTABLE_BASE_ID=your_airtable_base_id_here\n")
+        f.write("AIRTABLE_TABLE_USERS=your_airtable_table_users_name_here\n")
+        f.write("AIRTABLE_TABLE_NEWS=your_airtable_table_news_name_here\n")
+        f.write("TOKEN_GENERATION_SECRET=your_jwt_secret_here\n")
+
+if not os.path.exists(".env"):
+    print("No .env file found. Creating a template .env file...")
+    createEnv()
+    print("Please fill in the .env file with your actual configuration values and restart the application.")
+    exit(1)
 
 load_dotenv()
 API = Api(os.getenv("AIRTABLE_TOKEN"))
