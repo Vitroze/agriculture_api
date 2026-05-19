@@ -60,10 +60,26 @@ async def getSiren(siren: str):
         return result
 
 @app.post("/register", summary="User Registration", description="Register a new user with their SIREN number, email, and password.")
+def is_mail_valid(mail: str) -> bool:
+    pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return re.match(pattern, mail) is not None
+
 async def register(request: RegisterRequest):
     compagny_info = await getSiren(str(request.siren))
     if not compagny_info.get("siren") or compagny_info["siren"] != request.siren:
         return {"error": "Invalid SIREN number"}
+
+    if request.mail is None or request.password is None:
+        print("Email and password are required for registration.")
+        return {"error": "Email and password are required"}
+
+    if not is_mail_valid(request.mail):
+        print("Invalid email format:", request.mail)
+        return {"error": "Invalid email format"}
+
+    if len(request.password) < 6:
+        print("Password must be at least 6 characters long.")
+        return {"error": "Password must be at least 6 characters long"}
 
     if Users.isConnected():
         print("User already connected. Please log out before registering a new account.")
@@ -451,6 +467,27 @@ async def get_alertes_temps_reel(current_user: dict = Depends(Users.get_current_
 
     alertes = await verifier_alertes_temps_reel(latitude, longitude)
     return alertes
+
+@app.get("/update_plots", summary="Update User Plots", description="Update the number of plots for the authenticated user.")
+async def update_plots(plots: int, current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        return {"error": "Unauthorized"}
+    
+    if not Users.update_plots(current_user, plots):
+        return {"error": "Failed to update plots"}
+
+    return {"message": "Plots updated successfully"}
+
+@app.get("/get_settings_users", summary="Get User Settings", description="Retrieve the settings of the authenticated user.")
+async def get_settings_users(current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        return {"error": "Unauthorized"}
+
+    return {
+        "latitude": current_user.get("latitude"),
+        "longitude": current_user.get("longitude"),
+        "plots": current_user.get("plots")
+    }
 
 if __name__ == "__main__":
     import uvicorn

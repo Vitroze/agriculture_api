@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from os import getenv as os_getenv
-from jwt import encode as jwt_encode, decode as jwt_decode, exceptions as jwt_exceptions
+from jwt import encode as jwt_encode, decode as jwt_decode
 
 security = HTTPBearer()
 
@@ -22,9 +22,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     
 def exist_user(mail: str, siren: str=None, userId: str=None) -> bool:
     if siren is not None:
-        record = TABLE.first(formula=f"{{mail}}='{mail}' AND {{siren}}='{siren}'")
+        record = TABLE.first(formula=f"{{mail}}='{mail}', {{siren}}='{siren}'")
     elif userId is not None:
-        record = TABLE.first(formula=f"{{id}}='{userId}' AND {{mail}}='{mail}'")
+        record = TABLE.first(formula=f"{{id}}='{userId}', {{mail}}='{mail}'")
     else:
         record = TABLE.first(formula=f"{{mail}}='{mail}'")
 
@@ -49,12 +49,12 @@ def get_current_user(token: HTTPAuthorizationCredentials = Depends(security)):
         if userId is None:
             return None
         
-        user = TABLE.first(formula=f"{{mail}}='{mail}' AND {{id}}='{userId}'")
+        user = TABLE.first(formula=f"{{mail}}='{mail}', {{id}}='{userId}'")
         if not user:
             return None
 
         return user
-    except jwt_exceptions.JWTError as e:
+    except Exception as e:
         print("Error decoding token:", e)
         return None
     
@@ -75,9 +75,11 @@ def create_user(siret: str, mail: str, password: str):
     })
     return True
 
-def update_location(current_user, latitude: float, longitude: float):
+def update_location(current_user: dict, latitude: float, longitude: float):
     if current_user is None:
-        return False
+        current_user = get_current_user()
+        if current_user is None:
+            return False
     
     if not isinstance(latitude, (float, int)) or not isinstance(longitude, (float, int)):
         return False
@@ -87,3 +89,37 @@ def update_location(current_user, latitude: float, longitude: float):
         "longitude": longitude
     })
     return True
+
+def get_user_location(current_user=None):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return None
+    
+    return {
+        "latitude": current_user.get("latitude"),
+        "longitude": current_user.get("longitude")
+    }
+
+def update_plots(current_user: dict, plots: int):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return False
+    
+    if not isinstance(plots, int) or plots < 0:
+        return False
+    
+    TABLE.update(current_user["id"], {
+        "plots": plots
+    })
+
+    return True
+
+def get_user_plots(current_user=None):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return None
+    
+    return current_user.get("plots")
