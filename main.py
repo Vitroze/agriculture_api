@@ -96,7 +96,7 @@ class LoginRequest(BaseModel):
 
 @app.post("/login", summary="User Login", description="Authenticate a user with their email and password.")
 async def login(request: LoginRequest):
-    user = Users.exist_user(request.mail)
+    user = Users.get_user_info(request.mail)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid email or password")
 

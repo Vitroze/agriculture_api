@@ -4,21 +4,22 @@ import re
 sURL = "http://localhost:8000/"
 def test_register():
     payload = {
-        "siret": "356000000",
+        "siren": "356000000",
         "mail": "test@example.com",
         "password": "testpassword"
     }
+
     response = requests.post(sURL + "register", json=payload)
     if response.status_code == 200:
         print("Test passed: Received response:", response.json())
     else:
         print("Test failed: Status code", response.status_code, "Response:", response.text)
 
-#test_register()
+test_register()
 
 def test_login():
     payload = {
-        "mail": "test@example.com",
+        "mail": "testa@example.com",
         "password": "testpassword"
     }
     response = requests.post(sURL + "login", json=payload)
@@ -33,7 +34,7 @@ def test_login():
     else:
         print("Test failed: Status code", response.status_code, "Response:", response.text)
 
-sType,sToken = test_login()
+#sType,sToken = test_login()
 # print("Token type:", sType, "Token:", sToken)
 
 def last_news(sType, sToken):

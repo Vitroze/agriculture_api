@@ -124,3 +124,10 @@ def get_user_plots(current_user=None):
             return None
     
     return current_user.get("plots")
+
+def get_user_info(mail: str):
+    user = TABLE.first(formula=f"{{mail}}='{mail}'")
+    if not user:
+        return None
+    
+    return user
