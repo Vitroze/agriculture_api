@@ -8,7 +8,7 @@ from jwt import encode as jwt_encode, decode as jwt_decode, exceptions as jwt_ex
 
 security = HTTPBearer()
 
-def hash_password(password: str) -> str:
+def _hash_password(password: str) -> str:
     password_bytes = password.encode('utf-8')
     salt = bcrypt_gensalt()
     hashed = bcrypt_hashpw(password_bytes, salt)
@@ -66,7 +66,7 @@ def create_user(siret: str, mail: str, password: str):
     if exist_user(mail=mail):
         return False
     
-    hashed_password = hash_password(password)
+    hashed_password = _hash_password(password)
     TABLE.create({
         "siren": siret[:9],
         "siret": siret,
