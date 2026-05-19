@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pyairtable import Api
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup
 import feedparser
@@ -88,7 +88,7 @@ class LoginRequest(BaseModel):
 ACCESS_TOKEN_EXPIRE_MINUTES = 1 * 60  # 1 hour
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, os.getenv("TOKEN_GENERATION_SECRET"), algorithm="HS256")
     return encoded_jwt
