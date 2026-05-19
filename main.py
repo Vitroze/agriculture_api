@@ -67,27 +67,29 @@ def is_mail_valid(mail: str) -> bool:
 async def register(request: RegisterRequest):
     compagny_info = await getSiren(str(request.siren))
     if not compagny_info.get("siren") or compagny_info["siren"] != request.siren:
-        return {"error": "Invalid SIREN number"}
+        # return {"error": "Invalid SIREN number"}
+        # Return with HTTP Error
+        raise HTTPException(status_code=400, detail="Invalid SIREN number. No company information found.")
 
     if request.mail is None or request.password is None:
         print("Email and password are required for registration.")
-        return {"error": "Email and password are required"}
+        raise HTTPException(status_code=400, detail="Email and password are required")
 
     if not is_mail_valid(request.mail):
         print("Invalid email format:", request.mail)
-        return {"error": "Invalid email format"}
+        raise HTTPException(status_code=400, detail="Invalid email format")
 
     if len(request.password) < 6:
         print("Password must be at least 6 characters long.")
-        return {"error": "Password must be at least 6 characters long"}
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
 
     if Users.isConnected():
         print("User already connected. Please log out before registering a new account.")
-        return {"error": "User already connected. Please log out before registering a new account."}
+        raise HTTPException(status_code=400, detail="User already connected. Please log out before registering a new account.")
 
     if Users.exist_user(request.mail, request.siren):
-        return {"error": "Email already registered with this SIREN number"}
-    
+        raise HTTPException(status_code=400, detail="Email already registered with this SIREN number")
+
     Users.create_user(request.siren, request.mail, request.password)
 
     return {"message": "Registration successful"}
@@ -100,10 +102,11 @@ class LoginRequest(BaseModel):
 async def login(request: LoginRequest):
     user = Users.exist_user(request.mail)
     if not user:
-        return {"error": "Invalid email or password"}
+        # return {"error": "Invalid email or password"}
+        raise HTTPException(status_code=400, detail="Invalid email or password")
 
     if not Users.verify_password(request.password, user["fields"]["password"]):
-        return {"error": "Invalid email or password"}
+        raise HTTPException(status_code=400, detail="Invalid email or password")
     
     access_token = Users.create_access_token(data={"mail": user["fields"]["mail"], "userId": user["id"]})
     return {
@@ -118,21 +121,21 @@ class UpdateLocationRequest(BaseModel):
 @app.post("/update_location", summary="Update User Location", description="Update the location of the authenticated user.", response_description="Location update status message.")
 async def update_location(request: UpdateLocationRequest, current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
+        raise HTTPException(status_code=401, detail="Unauthorized")
     
     if not Users.update_location(current_user, request.latitude, request.longitude):
-        return {"error": "Failed to update location"}
+        raise HTTPException(status_code=400, detail="Failed to update location")
 
     return {"message": "Location updated successfully"}
 
 @app.get("/last_news", summary="Retrieve Last News", description="Get the latest news items from the agriculture website.")
 async def last_news(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     response = httpx.get("https://agriculture.gouv.fr/filieres-vegetales")
     if response.status_code != 200:
-        return {"error": "Failed to retrieve news"}
+        raise HTTPException(status_code=response.status_code, detail="Failed to retrieve news from the agriculture website")
     
     pattern = r'<div class="fr-card__body">.*?<h2 class="fr-card__title"><a class="fr-card__link" href="(.*?)">(.*?)</a></h2>.*?<p class="fr-card__desc">(.*?)</p>.*?<p class="fr-card__detail"><span class="fr-card__date">(.*?)</span>'
     matches = re.findall(pattern, response.text, re.DOTALL)
@@ -223,7 +226,7 @@ scheduler.start()
 @app.get("/get_all_disease", summary="Get All Disease Alerts", description="Retrieve all disease alerts stored in the database.")
 async def get_disease(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     records = RSS_TABLE.all()
     diseases = []
@@ -292,11 +295,11 @@ def verifier_risques_technologiques(latitude: float, longitude: float):
             
         else:
             print(f"Erreur API Géorisques: Code {response.status_code}")
-            return {"statut": "Erreur", "message": "Impossible de contacter le service de cartographie."}
-            
+            raise HTTPException(status_code=response.status_code, detail="Impossible de contacter le service de cartographie.")
+
     except httpx.HTTPError as e:
         print(f"Erreur de connexion: {e}")
-        return {"statut": "Erreur", "message": "Erreur réseau lors de la vérification des risques."}
+        raise HTTPException(status_code=500, detail="Erreur réseau lors de la vérification des risques.")
 
 def verifier_risques_naturels(latitude: float, longitude: float):
     """
@@ -346,22 +349,22 @@ def verifier_risques_naturels(latitude: float, longitude: float):
             
         else:
             print(f"Erreur API Géorisques: Code {response.status_code}")
-            return {"statut": "Erreur", "message": "Impossible de contacter le service de cartographie."}
-            
+            raise HTTPException(status_code=response.status_code, detail="Impossible de contacter le service de cartographie.")
+
     except httpx.HTTPError as e:
         print(f"Erreur de connexion: {e}")
-        return {"statut": "Erreur", "message": "Erreur réseau lors de la vérification des risques."}
+        raise HTTPException(status_code=500, detail="Erreur réseau lors de la vérification des risques.")
 
 @app.get("/get_zone_risques_naturels", summary="Check Natural and Technological Risks", description="Check for natural risks (floods, earthquakes, landslides, clay) at specific GPS coordinates.")
 async def verifier_risques_naturels_et_technologiques(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     latitude = current_user["fields"].get("latitude")
     longitude = current_user["fields"].get("longitude")
 
     if latitude is None or longitude is None:
-        return {"error": "User location not set. Please update your location first."}
+        raise HTTPException(status_code=400, detail="User location not set. Please update your location first.")
 
     risques_technologiques = verifier_risques_technologiques(latitude, longitude)
     risques_naturels = verifier_risques_naturels(latitude, longitude)
@@ -382,8 +385,8 @@ async def verifier_alertes_temps_reel(latitude: float, longitude: float):
         try:
             response_geo = await client.get(url_geo, timeout=5)
             if response_geo.status_code != 200 or not response_geo.json().get("features"):
-                return {"statut": "Erreur", "message": "Impossible de géolocaliser le département."}
-            
+                raise HTTPException(status_code=400, detail="Impossible de géolocaliser le département.")
+
             context = response_geo.json()["features"][0]["properties"].get("context", "")
             departement = context.split(",")[0].strip()
             
@@ -457,13 +460,13 @@ async def verifier_alertes_temps_reel(latitude: float, longitude: float):
 @app.get("/get_alertes_temps_reel", summary="Check Real-Time Alerts", description="Check for real-time natural disaster alerts and weather warnings at specific GPS coordinates.")
 async def get_alertes_temps_reel(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     latitude = current_user["fields"].get("latitude")
     longitude = current_user["fields"].get("longitude")
 
     if latitude is None or longitude is None:
-        return {"error": "User location not set. Please update your location first."}
+        raise HTTPException(status_code=400, detail="User location not set. Please update your location first.")
 
     alertes = await verifier_alertes_temps_reel(latitude, longitude)
     return alertes
@@ -471,17 +474,17 @@ async def get_alertes_temps_reel(current_user: dict = Depends(Users.get_current_
 @app.get("/update_plots", summary="Update User Plots", description="Update the number of plots for the authenticated user.")
 async def update_plots(plots: int, current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
-    
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     if not Users.update_plots(current_user, plots):
-        return {"error": "Failed to update plots"}
+        raise HTTPException(status_code=500, detail="Failed to update plots")
 
     return {"message": "Plots updated successfully"}
 
 @app.get("/get_settings_users", summary="Get User Settings", description="Retrieve the settings of the authenticated user.")
 async def get_settings_users(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
-        return {"error": "Unauthorized"}
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     return {
         "latitude": current_user.get("latitude"),
