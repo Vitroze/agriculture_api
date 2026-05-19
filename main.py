@@ -1,16 +1,15 @@
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel
-from pyairtable import Api
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup
+from db import RSS_TABLE, TOKEN_API_METEO_FRANCE
+
+import users as Users
 import feedparser
-import bcrypt
 import os
 import httpx
-import jwt
 import uvicorn
 import re
 import html
@@ -30,10 +29,6 @@ if not os.path.exists(".env"):
     exit(1)
 
 load_dotenv()
-API = Api(os.getenv("AIRTABLE_TOKEN"))
-TABLE = API.table(os.getenv("AIRTABLE_BASE_ID"), os.getenv("AIRTABLE_TABLE_USERS"))
-RSS_TABLE = API.table(os.getenv("AIRTABLE_BASE_ID"), os.getenv("AIRTABLE_TABLE_NEWS"))
-TOKEN_API_METEO_FRANCE = "eyJ4NXQiOiJZV0kxTTJZNE1qWTNOemsyTkRZeU5XTTRPV014TXpjek1UVmhNbU14T1RSa09ETXlOVEE0Tnc9PSIsImtpZCI6ImdhdGV3YXlfY2VydGlmaWNhdGVfYWxpYXMiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJWaXRyb3plQGNhcmJvbi5zdXBlciIsImFwcGxpY2F0aW9uIjp7Im93bmVyIjoiVml0cm96ZSIsInRpZXJRdW90YVR5cGUiOm51bGwsInRpZXIiOiJVbmxpbWl0ZWQiLCJuYW1lIjoiRGVmYXVsdEFwcGxpY2F0aW9uIiwiaWQiOjQwOTgwLCJ1dWlkIjoiYmQzYTY5ZjAtYjExZS00NTY5LTljY2ItODBkYmE3ZGIyYzIwIn0sImlzcyI6Imh0dHBzOlwvXC9wb3J0YWlsLWFwaS5tZXRlb2ZyYW5jZS5mcjo0NDNcL29hdXRoMlwvdG9rZW4iLCJ0aWVySW5mbyI6eyI2MFJlcVBhck1pbiI6eyJ0aWVyUXVvdGFUeXBlIjoicmVxdWVzdENvdW50IiwiZ3JhcGhRTE1heENvbXBsZXhpdHkiOjAsImdyYXBoUUxNYXhEZXB0aCI6MCwic3RvcE9uUXVvdGFSZWFjaCI6dHJ1ZSwic3Bpa2VBcnJlc3RMaW1pdCI6MCwic3Bpa2VBcnJlc3RVbml0Ijoic2VjIn19LCJrZXl0eXBlIjoiUFJPRFVDVElPTiIsInN1YnNjcmliZWRBUElzIjpbeyJzdWJzY3JpYmVyVGVuYW50RG9tYWluIjoiY2FyYm9uLnN1cGVyIiwibmFtZSI6IkRvbm5lZXNQdWJsaXF1ZXNWaWdpbGFuY2UiLCJjb250ZXh0IjoiXC9wdWJsaWNcL0RQVmlnaWxhbmNlXC92MSIsInB1Ymxpc2hlciI6ImFkbWluIiwidmVyc2lvbiI6InYxIiwic3Vic2NyaXB0aW9uVGllciI6IjYwUmVxUGFyTWluIn1dLCJleHAiOjE4NzM3ODU3NjEsInRva2VuX3R5cGUiOiJhcGlLZXkiLCJpYXQiOjE3NzkxMTI5NjEsImp0aSI6ImNjMTI1NTdlLWY0ZjktNDRjZS1iOTEzLTk4Mzg0OWM4OTdlMyJ9.MTurBXEw56BlP-PHy-tTTS8D2wMuuo8ap_cF7KJ-FBVMfVkRau425sDfJ_MJR0JYa8yWKzqi0GnNrwqzE-f8OnyYa-AVDY5xLPLjS6ceXPAhYqyzo2RGe_u8--iGgl5qSpaUrjiGLdoIaxOvOwJZvrqSH2R-GZu-OSOLK3jbQhljqpSxpNAohlIpp1udcXkMFSGtUmlD65xbUm4xKvwjTAgJFyK9gVft9_5Sd2QVh9eiaX_vOBcAfmxhT_6ydTsjeIZTI2nTexpT7yodpO7gRxmofG7hXpbK5nGaChgsPJLEASU2t9N5Fbcbm4KvvfAWSDLuXa_17Fu6AkZ9F4NaqQ=="
 
 security = HTTPBearer()
 app = FastAPI(
@@ -42,54 +37,42 @@ app = FastAPI(
     version="1.0.0",
 )
 
-def hash_password(password: str) -> str:
-    password_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode('utf-8')
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-    except Exception:
-        return False
-
 @app.get("/", summary="Root Endpoint", description="Check if the development server is running and the API is ready.")
 async def root():
     return {"message": "Development server is running! API is ready."}
 
 class RegisterRequest(BaseModel):
     mail: str
-    siret: str
+    siren: str
     password: str
 
-async def getSiret(siret: str):
+async def getSiren(siren: str):
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"https://recherche-entreprises.api.gouv.fr/search?q={siret}&page=1&per_page=1")
+        response = await client.get(f"https://recherche-entreprises.api.gouv.fr/search?q={siren}&page=1&per_page=1")
         result = response.json()
         result = result["results"] or []
         if not result or len(result) == 0:
-            print(f"No company information found for SIRET: {siret}")
+            print(f"No company information found for SIREN: {siren}")
             return {}
         
         result = result[0]
 
         return result
 
-@app.post("/register", summary="User Registration", description="Register a new user with their SIRET number, email, and password.")
+@app.post("/register", summary="User Registration", description="Register a new user with their SIREN number, email, and password.")
 async def register(request: RegisterRequest):
-    compagny_info = await getSiret(str(request.siret))
-    if not compagny_info.get("siren") or compagny_info["siren"] != request.siret:
-        return {"error": "Invalid SIRET number"}
+    compagny_info = await getSiren(str(request.siren))
+    if not compagny_info.get("siren") or compagny_info["siren"] != request.siren:
+        return {"error": "Invalid SIREN number"}
 
-    if TABLE.first(formula=f"{{siret}}='{request.siret}'"):
-        return {"error": "SIRET number already registered"}
+    if Users.isConnected():
+        print("User already connected. Please log out before registering a new account.")
+        return {"error": "User already connected. Please log out before registering a new account."}
+
+    if Users.exist_user(request.mail, request.siren):
+        return {"error": "Email already registered with this SIREN number"}
     
-    TABLE.create({
-        "siret": request.siret,
-        "mail": request.mail,
-        "password": hash_password(request.password)
-    })
+    Users.create_user(request.siren, request.mail, request.password)
 
     return {"message": "Registration successful"}
     
@@ -97,36 +80,16 @@ class LoginRequest(BaseModel):
     mail: str
     password: str
 
-ACCESS_TOKEN_EXPIRE_MINUTES = 1 * 60  # 1 hour
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, os.getenv("TOKEN_GENERATION_SECRET"), algorithm="HS256")
-    return encoded_jwt
-
-def get_current_user(token: HTTPAuthorizationCredentials = Depends(security)):
-    try:
-        payload = jwt.decode(token.credentials, os.getenv("TOKEN_GENERATION_SECRET"), algorithms=["HS256"])
-        mail: str = payload.get("sub")
-        if mail is None:
-            return None
-        
-        return mail
-    except Exception as e:
-        print("Error decoding token:", e)
-        return None
-
 @app.post("/login", summary="User Login", description="Authenticate a user with their email and password.")
 async def login(request: LoginRequest):
-    user = TABLE.first(formula=f"{{mail}}='{request.mail}'")
+    user = Users.exist_user(request.mail)
     if not user:
         return {"error": "Invalid email or password"}
-    
-    if not verify_password(request.password, user["fields"]["password"]):
+
+    if not Users.verify_password(request.password, user["fields"]["password"]):
         return {"error": "Invalid email or password"}
     
-    access_token = create_access_token(data={"sub": user["fields"]["mail"]})
+    access_token = Users.create_access_token(data={"mail": user["fields"]["mail"], "userId": user["id"]})
     return {
         "access_token": access_token, 
         "token_type": "bearer",
@@ -137,23 +100,17 @@ class UpdateLocationRequest(BaseModel):
     longitude: float
 
 @app.post("/update_location", summary="Update User Location", description="Update the location of the authenticated user.", response_description="Location update status message.")
-async def update_location(request: UpdateLocationRequest, current_user: str = Depends(get_current_user)):
+async def update_location(request: UpdateLocationRequest, current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         return {"error": "Unauthorized"}
-
-    user = TABLE.first(formula=f"{{mail}}='{current_user}'")
-    if not user:
-        return {"error": "User not found"}
     
-    TABLE.update(user["id"], {
-        "latitude": request.latitude,
-        "longitude": request.longitude
-    })
+    if not Users.update_location(current_user, request.latitude, request.longitude):
+        return {"error": "Failed to update location"}
 
     return {"message": "Location updated successfully"}
 
 @app.get("/last_news", summary="Retrieve Last News", description="Get the latest news items from the agriculture website.")
-async def last_news(current_user: str = Depends(get_current_user)):
+async def last_news(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         return {"error": "Unauthorized"}
 
@@ -200,26 +157,19 @@ def clear_esa(html_content):
     else:
         description = "Description non trouvée"
 
-    r_date = re.compile(
-        r'<div[^>]*class=["\']field field--name-node-post-date field--type-ds field--label-hidden field__item["\'][^>]*>(.*?)<\/div>', 
-        re.DOTALL
-    )
-    match_date = r_date.search(html_content)
-    date_pub = match_date.group(1).strip() if match_date else "Date de publication non trouvée"
+    return description
 
-    return description, date_pub
-
+categories_especes = {
+    "Bovins (Vaches, Taureaux, Buffles)": ["bovin", "bovine", "dermatose nodulaire", "tuberculose"],
+    "Porcins (Porcs, Sangliers)": ["porc", "porcine", "peste porcine", "suidés", "grippe avariable", "influenza porcin"],
+    "Ovins/Caprins (Moutons, Chèvres)": ["ovin", "caprin", "mouton", "fièvre catarrhale", "fco", "clavelée"],
+    "Volaille (Poulets, Canards, Oiseaux)": ["volaille", "aviaire", "influenza aviaire", "grippe aviaire", "oiseau"]
+}
 def check_flux_epidemiologique():
     for record in RSS_TABLE.all():
         RSS_TABLE.delete(record["id"])
 
     rss = feedparser.parse("https://www.plateforme-esa.fr/fr/rss.xml")
-    categories_especes = {
-        "Bovins (Vaches, Taureaux, Buffles)": ["bovin", "bovine", "dermatose nodulaire", "tuberculose"],
-        "Porcins (Porcs, Sangliers)": ["porc", "porcine", "peste porcine", "suidés", "grippe avariable", "influenza porcin"],
-        "Ovins/Caprins (Moutons, Chèvres)": ["ovin", "caprin", "mouton", "fièvre catarrhale", "fco", "clavelée"],
-        "Volaille (Poulets, Canards, Oiseaux)": ["volaille", "aviaire", "influenza aviaire", "grippe aviaire", "oiseau"]
-    }
 
     for entry in rss.entries:
         titre = entry.title
@@ -238,7 +188,7 @@ def check_flux_epidemiologique():
                 espece_detectee = espece
                 break
         
-        description, date_pub = clear_esa(entry.description)
+        description = clear_esa(entry.description)
         resume = description
 
         if RSS_TABLE.first(formula=f"{{title}}='{titre}'") is None:
@@ -255,7 +205,7 @@ scheduler.add_job(check_flux_epidemiologique, 'interval', minutes=1)
 scheduler.start()
 
 @app.get("/get_all_disease", summary="Get All Disease Alerts", description="Retrieve all disease alerts stored in the database.")
-async def get_disease(current_user: str = Depends(get_current_user)):
+async def get_disease(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         return {"error": "Unauthorized"}
 
@@ -273,7 +223,7 @@ async def get_disease(current_user: str = Depends(get_current_user)):
 
     return {"diseases": diseases}
 
-def verifier_risques_technologiques(latitude: float, longitude: float, current_user: str = Depends(get_current_user)):
+def verifier_risques_technologiques(latitude: float, longitude: float):
     """
     Interroge l'API Géorisques pour obtenir les risques technologiques et chimiques
     (Seveso, nucléaire, ICPE) à une position GPS précise.
@@ -387,16 +337,12 @@ def verifier_risques_naturels(latitude: float, longitude: float):
         return {"statut": "Erreur", "message": "Erreur réseau lors de la vérification des risques."}
 
 @app.get("/get_zone_risques_naturels", summary="Check Natural and Technological Risks", description="Check for natural risks (floods, earthquakes, landslides, clay) at specific GPS coordinates.")
-async def verifier_risques_naturels_et_technologiques(current_user: str = Depends(get_current_user)):
+async def verifier_risques_naturels_et_technologiques(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         return {"error": "Unauthorized"}
 
-    user = TABLE.first(formula=f"{{mail}}='{current_user}'")
-    if not user:
-        return {"error": "User not found"}
-
-    latitude = user["fields"].get("latitude")
-    longitude = user["fields"].get("longitude")
+    latitude = current_user["fields"].get("latitude")
+    longitude = current_user["fields"].get("longitude")
 
     if latitude is None or longitude is None:
         return {"error": "User location not set. Please update your location first."}
@@ -493,17 +439,12 @@ async def verifier_alertes_temps_reel(latitude: float, longitude: float):
             raise HTTPException(status_code=503, detail="Le serveur Météo-France ne répond pas ou est inaccessible.")
 
 @app.get("/get_alertes_temps_reel", summary="Check Real-Time Alerts", description="Check for real-time natural disaster alerts and weather warnings at specific GPS coordinates.")
-async def get_alertes_temps_reel(current_user: str = Depends(get_current_user)):
+async def get_alertes_temps_reel(current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         return {"error": "Unauthorized"}
 
-    print("User authenticated, retrieving location for alert check...", current_user)
-    user = TABLE.first(formula=f"{{mail}}='{current_user}'")
-    if not user:
-        return {"error": "User not found"}
-
-    latitude = user["fields"].get("latitude")
-    longitude = user["fields"].get("longitude")
+    latitude = current_user["fields"].get("latitude")
+    longitude = current_user["fields"].get("longitude")
 
     if latitude is None or longitude is None:
         return {"error": "User location not set. Please update your location first."}
