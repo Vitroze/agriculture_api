@@ -22,7 +22,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     
 def exist_user(mail: str, siren: str = None, userId: str = None) -> bool:
     if siren is not None:
-        formula = f"AND({{mail}}='{mail}', {{siren}}='{siren}')"
+        formula = f"OR({{mail}}='{mail}', {{siren}}='{siren}')"
         record = TABLE.first(formula=formula)
     elif userId is not None:
         formula = f"AND({{id}}='{userId}', {{mail}}='{mail}')"
