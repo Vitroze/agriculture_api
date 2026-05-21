@@ -15,13 +15,14 @@ def test_register():
     else:
         print("Test failed: Status code", response.status_code, "Response:", response.text)
 
-test_register()
+#test_register()
 
 def test_login():
     payload = {
-        "mail": "testa@example.com",
+        "mail": "test@example.com",
         "password": "testpassword"
     }
+
     response = requests.post(sURL + "login", json=payload)
     if response.status_code == 200:
         print("Test passed: Received response:", response.json())
@@ -34,8 +35,22 @@ def test_login():
     else:
         print("Test failed: Status code", response.status_code, "Response:", response.text)
 
-#sType,sToken = test_login()
+sType,sToken = test_login()
 # print("Token type:", sType, "Token:", sToken)
+
+def testWebhook():
+
+    headers = {
+        "Authorization": f"{sType} {sToken}",
+    }
+
+    response = requests.get(sURL + "receive_activities", headers=headers)
+    if response.status_code == 200:
+        print("Test passed: Received response:", response.json())
+    else:
+        print("Test failed: Status code", response.status_code, "Response:", response.text)
+
+testWebhook()
 
 def last_news(sType, sToken):
     # Error decoding token: 'HTTPBearer' object has no attribute 'credentials'

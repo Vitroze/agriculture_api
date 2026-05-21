@@ -564,6 +564,24 @@ def delete_inventory_item(request: DeleteInventoryItemRequest, current_user: dic
 
     return {"message": "Inventory item deleted successfully"}
 
+URLWebhook = os.getenv("URL_RECEIVE_ACTIVITIES", "")
+@app.get("/request_myactivities", summary="Receive User Activities", description="Receive the activities of the authenticated user.")
+def receive_activities(current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    print(f"Received activities for user: {current_user['fields']['mail']}")
+    with httpx.Client() as client:
+        try:
+            response = client.post(URLWebhook, json={"email": current_user["fields"]["mail"]}, timeout=5)
+            if response.status_code != 200:
+                print(f"Failed to send activities to webhook. Status code: {response.status_code}")
+        except httpx.HTTPError as e:
+            print(f"Error sending activities to webhook: {e}")
+            raise HTTPException(status_code=500, detail="Error sending activities to webhook")
+
+    raise HTTPException(status_code=200, detail="Activities sent successfully")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
