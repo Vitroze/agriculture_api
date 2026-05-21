@@ -1,5 +1,5 @@
 from bcrypt import gensalt as bcrypt_gensalt, hashpw as bcrypt_hashpw, checkpw as bcrypt_checkpw
-from db import TABLE
+from db import TABLE, INVENTORY
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -38,10 +38,11 @@ def create_access_token(data: dict):
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt_encode(to_encode, os_getenv("TOKEN_GENERATION_SECRET"), algorithm="HS256")
-    return encoded_jwt
+    return encoded_jwt, expire
 
 def get_current_user(token: HTTPAuthorizationCredentials = Depends(security)):
     try:
+        print("Decoding token:", token)
         payload = jwt_decode(token.credentials, os_getenv("TOKEN_GENERATION_SECRET"), algorithms=["HS256"])
         mail: str = payload.get("mail")
         if mail is None:
@@ -51,7 +52,7 @@ def get_current_user(token: HTTPAuthorizationCredentials = Depends(security)):
         if userId is None:
             return None
         
-        user = TABLE.first(formula=f"{{mail}}='{mail}', {{id}}='{userId}'")
+        user = TABLE.first(formula=f"AND({{mail}}='{mail}', RECORD_ID()='{userId}')")
         if not user:
             return None
 
@@ -97,9 +98,11 @@ def get_user_location(current_user=None):
         if current_user is None:
             return None
     
+    print(current_user)
+
     return {
-        "latitude": current_user.get("latitude"),
-        "longitude": current_user.get("longitude")
+        "latitude": current_user["fields"].get("latitude"),
+        "longitude": current_user["fields"].get("longitude")
     }
 
 def update_plots(current_user: dict, plots: int):
@@ -131,3 +134,97 @@ def get_user_info(mail: str):
         return None
     
     return user
+
+def get_inventory(current_user=None):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return None
+    
+    records = INVENTORY.all(formula=f"{{userMail}}='{current_user['fields']['mail']}'")
+    inventory = []
+    for record in records:
+        fields = record.get("fields", {})
+        inventory.append({
+            "id": record.get("id"),
+            "Title": fields.get("name", "N/A"),
+            "Description": fields.get("description", "N/A"),
+            "Quantity": fields.get("quantity", 0),
+            "Total": fields.get("total", 0),
+            "Date": fields.get("lastModify", "N/A")
+        })
+    return inventory
+
+def get_exist_item(name_item: str):
+    record = INVENTORY.first(formula=f"{{name}}='{name_item}'")
+    return record
+
+def add_inventory_item(current_user: dict, name: str, description: str, quantity: int, total: float):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return False
+    
+    if not isinstance(quantity, int) or quantity < 0:
+        return False
+
+    if not isinstance(total, (float, int)) or total < 0:
+        return False
+    
+    INVENTORY.create({
+        "userMail": current_user["fields"]["mail"],
+        "name": name,
+        "description": description,
+        "quantity": quantity,
+        "total": total
+    })
+    return True
+
+def update_inventory_item(current_user: dict, item_id: str, name: str, description: str, quantity: int, total: float):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return False
+    
+    if not isinstance(quantity, int) or quantity < 0:
+        return False
+    
+    if not isinstance(total, (float, int)) or total < 0:
+        return False
+    
+    item = INVENTORY.get(item_id)
+    if not item or item["fields"].get("userMail") != current_user["fields"]["mail"]:
+        return False
+
+    nameItem = item["fields"].get("name", "")    
+    if nameItem != name and get_exist_item(name) is not None:
+        return False
+
+    INVENTORY.update(item_id, {
+        "name": name,
+        "description": description,
+        "quantity": quantity,
+        "total": total
+    })
+    return True
+
+def delete_inventory_item(current_user: dict, item_id: str):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return False
+    
+    print(item_id)
+
+    item = None
+    try:
+        item = INVENTORY.get(item_id)
+    except Exception as e:
+        print("Error fetching inventory item:", e)
+        return False
+
+    if not item or item["fields"].get("userMail") != current_user["fields"]["mail"]:
+        return False
+    
+    INVENTORY.delete(item_id)
+    return True

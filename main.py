@@ -13,6 +13,7 @@ import httpx
 import uvicorn
 import re
 import html
+import datetime
 
 def createEnv():
     with open(".env", "w") as f:
@@ -20,6 +21,7 @@ def createEnv():
         f.write("AIRTABLE_BASE_ID=your_airtable_base_id_here\n")
         f.write("AIRTABLE_TABLE_USERS=your_airtable_table_users_name_here\n")
         f.write("AIRTABLE_TABLE_NEWS=your_airtable_table_news_name_here\n")
+        f.write("AIRTABLE_TABLE_INVENTORY=your_airtable_table_inventory_name_here\n")
         f.write("TOKEN_GENERATION_SECRET=your_jwt_secret_here\n")
 
 if not os.path.exists(".env"):
@@ -103,10 +105,11 @@ async def login(request: LoginRequest):
     if not Users.verify_password(request.password, user["fields"]["password"]):
         raise HTTPException(status_code=400, detail="Invalid email or password")
     
-    access_token = Users.create_access_token(data={"mail": user["fields"]["mail"], "userId": user["id"]})
+    access_token, expire = Users.create_access_token(data={"mail": user["fields"]["mail"], "userId": user["id"]})
     return {
         "access_token": access_token, 
         "token_type": "bearer",
+        "expire": expire.isoformat()
     }
 
 class UpdateLocationRequest(BaseModel):
@@ -122,6 +125,19 @@ async def update_location(request: UpdateLocationRequest, current_user: dict = D
         raise HTTPException(status_code=400, detail="Failed to update location")
 
     return {"message": "Location updated successfully"}
+
+@app.get("/get_location", summary="Get User Location", description="Retrieve the location of the authenticated user.", response_description="User location data.")
+async def get_location(current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    location = Users.get_user_location(current_user)
+    if location is None:
+        raise HTTPException(status_code=400, detail="Failed to retrieve location")
+
+    print(location)
+
+    return {"type": "point", "latitude": location["latitude"], "longitude": location["longitude"], "text": "Votre emplacement"}
 
 @app.get("/last_news", summary="Retrieve Last News", description="Get the latest news items from the agriculture website.")
 async def last_news(current_user: dict = Depends(Users.get_current_user)):
@@ -203,7 +219,7 @@ def check_flux_epidemiologique():
                 break
         
         description = clear_esa(entry.description)
-        resume = description
+        resume = description[:200] + "..." if len(description) > 200 else description
 
         if RSS_TABLE.first(formula=f"{{title}}='{titre}'") is None:
             RSS_TABLE.create({
@@ -227,12 +243,18 @@ async def get_disease(current_user: dict = Depends(Users.get_current_user)):
     diseases = []
     for record in records:
         fields = record.get("fields", {})
+        sDate = fields.get("date", "N/A")
+        try:
+            date_obj = datetime.strptime(sDate, "%a, %d %b %Y %H:%M:%S %z")
+            formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            formatted_date = sDate
         diseases.append({
             "title": fields.get("title", "N/A"),
             "link": fields.get("link", "N/A"),
             "description": fields.get("description", "N/A"),
-            "date": fields.get("date", "N/A"),
-            "espece": fields.get("espece", "N/A")
+            "date": formatted_date,
+            "espece": fields.get("espece", "N/A") == "N/A" and "" or fields.get("espece", "N/A")
         })
 
     return {"diseases": diseases}
@@ -486,6 +508,61 @@ async def get_settings_users(current_user: dict = Depends(Users.get_current_user
         "longitude": current_user.get("longitude"),
         "plots": current_user.get("plots")
     }
+
+@app.get("/get_inventory", summary="Get User Inventory", description="Retrieve the inventory of the authenticated user.")
+async def get_inventory(current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return {"inventory": Users.get_inventory(current_user)}
+
+class UpdateInventoryRequest(BaseModel):
+    idInventory: str
+    name: str
+    description: str
+    quantity: int
+    total: int
+@app.post("/update_inventory", summary="Update User Inventory", description="Update the inventory of the authenticated user.")
+
+async def update_inventory(request: UpdateInventoryRequest, current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not Users.update_inventory_item(current_user, request.idInventory, request.name, request.description, request.quantity, request.total):
+        raise HTTPException(status_code=500, detail="Failed to update inventory")
+
+    return {"message": "Inventory updated successfully"}
+
+class AddInventoryItemRequest(BaseModel):
+    name: str
+    description: str
+    quantity: int
+    total: int
+@app.post("/add_inventory_item", summary="Add Inventory Item", description="Add a new item to the inventory of the authenticated user.")
+async def add_inventory_item(request: AddInventoryItemRequest, current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if Users.get_exist_item(current_user, request.name):
+        raise HTTPException(status_code=400, detail="Item with the same name already exists in inventory")
+
+    if not Users.add_inventory_item(current_user, request.name, request.description, request.quantity, request.total):
+        raise HTTPException(status_code=500, detail="Failed to add inventory item")
+
+    return {"message": "Inventory item added successfully"}
+
+class DeleteInventoryItemRequest(BaseModel):
+    idInventory: str
+@app.delete("/delete_inventory_item", summary="Delete Inventory Item", description="Delete an item from the inventory of the authenticated user.")
+
+def delete_inventory_item(request: DeleteInventoryItemRequest, current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not Users.delete_inventory_item(current_user, request.idInventory):
+        raise HTTPException(status_code=500, detail="Failed to delete inventory item")
+
+    return {"message": "Inventory item deleted successfully"}
 
 if __name__ == "__main__":
     import uvicorn
