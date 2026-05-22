@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPBearer
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -37,6 +38,15 @@ app = FastAPI(
     title="Agriculture API",
     description="API for agriculture-related services, including user registration, authentication, location updates, and news retrieval.",
     version="1.0.0",
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost", "*"],  # restreins selon tes besoins
+    allow_credentials=True,
+    allow_methods=["*"],      # autorise OPTIONS, POST, GET...
+    allow_headers=["*"],      # autorise content-type, authorization...
 )
 
 @app.get("/", summary="Root Endpoint", description="Check if the development server is running and the API is ready.")
@@ -565,15 +575,25 @@ def delete_inventory_item(request: DeleteInventoryItemRequest, current_user: dic
     return {"message": "Inventory item deleted successfully"}
 
 URLWebhook = os.getenv("URL_RECEIVE_ACTIVITIES", "")
-@app.get("/request_myactivities", summary="Receive User Activities", description="Receive the activities of the authenticated user.")
-def receive_activities(current_user: dict = Depends(Users.get_current_user)):
+class WebhookRequest(BaseModel):
+    meteo: str
+
+@app.post("/request_myactivities", summary="Receive User Activities", description="Receive the activities of the authenticated user.")
+def receive_activities(request: WebhookRequest, current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     print(f"Received activities for user: {current_user['fields']['mail']}")
+    print(request)
+    print(request.meteo if request else "No Meteo data provided")
     with httpx.Client() as client:
         try:
-            response = client.post(URLWebhook, json={"email": current_user["fields"]["mail"]}, timeout=5)
+            response = client.post(URLWebhook, json={
+                "email": current_user["fields"]["mail"],
+                "token": Users.create_access_token(data={"mail": current_user["fields"]["mail"], "userId": current_user["id"]}, expires_delta=datetime.timedelta(minutes=5))[0],
+                "meteo": request.meteo if request else "N/A"
+            }, timeout=5)
+
             if response.status_code != 200:
                 print(f"Failed to send activities to webhook. Status code: {response.status_code}")
         except httpx.HTTPError as e:

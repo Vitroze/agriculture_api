@@ -33,9 +33,12 @@ def exist_user(mail: str, siren: str = None, userId: str = None) -> bool:
     return record is not None
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 1 * 60  # 1 hour
-def create_access_token(data: dict):
+def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt_encode(to_encode, os_getenv("TOKEN_GENERATION_SECRET"), algorithm="HS256")
     return encoded_jwt, expire
