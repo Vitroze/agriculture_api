@@ -599,6 +599,8 @@ def receive_activities(request: WebhookRequest, current_user: dict = Depends(Use
 
             if response.status_code != 200:
                 print(f"Failed to send activities to webhook. Status code: {response.status_code}")
+                print(f"Response content: {response.text}")
+                raise HTTPException(status_code=response.status_code, detail="Failed to send activities to webhook")
         except httpx.HTTPError as e:
             print(f"Error sending activities to webhook: {e}")
             raise HTTPException(status_code=500, detail="Error sending activities to webhook")
@@ -610,28 +612,21 @@ async def get_notifications(current_user: dict = Depends(Users.get_current_user)
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # Return Notify 
-    # {
-    #     {
-    #         "title": "Alerte Météo",
-    #         "message": "Une alerte de vent violent a été détectée dans votre région. Prenez les précautions nécessaires.",
-    #         "type": "warning" # Type : meteo-rouge, meteo-orange, rappel, succes, info
-    # }
-
     meteo_alerts = []
-    print(current_user["fields"].get("latitude"), current_user["fields"].get("longitude"))
+    print("Receive request notify for user:", current_user["fields"]["mail"])
     if current_user["fields"].get("latitude") and current_user["fields"].get("longitude"):
         alertes = await verifier_alertes_temps_reel(current_user["fields"]["latitude"], current_user["fields"]["longitude"])
-        print(f"Alertes météo récupérées pour l'utilisateur {current_user['fields']['mail']}: {alertes}")
         if alertes.get("risques_en_cours") and isinstance(alertes["risques_en_cours"], list):
             for alerte in alertes["risques_en_cours"]:
-                print(f"Processing alert: {alerte}")
                 if alerte.get("niveau") in ["Rouge", "Orange", "Jaune"]:
                     meteo_alerts.append({
                         "title": f"Alerte Météo: {alerte.get('phenomene')}",
                         "message": f"Une alerte de niveau {alerte.get('niveau')} a été détectée pour {alerte.get('phenomene')}. {alerte.get('conseil')}",
                         "type": f"meteo-{alerte.get('niveau').lower()}"
                     })
+
+    last_activities = Users.get_last_activities(current_user)
+    meteo_alerts.extend(last_activities)
 
     return {"notifications": meteo_alerts}
 

@@ -1,5 +1,5 @@
 from bcrypt import gensalt as bcrypt_gensalt, hashpw as bcrypt_hashpw, checkpw as bcrypt_checkpw
-from db import TABLE, INVENTORY
+from db import TABLE, INVENTORY, ACTIVITIES_TABLE
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -249,3 +249,43 @@ def delete_inventory_item(current_user: dict, item_id: str):
     
     INVENTORY.delete(item_id)
     return True
+
+def get_last_activities(current_user=None):
+    if current_user is None:
+        current_user = get_current_user()
+        if current_user is None:
+            return None
+    
+    sTodayDate = datetime.now().date()
+    sTodayDate = sTodayDate.strftime("%Y-%m-%d")
+
+    print(f"Fetching activities for date: {sTodayDate} and user: {current_user['fields']['mail']}")
+
+    # 1. Correction du paramètre sort
+    records = ACTIVITIES_TABLE.all(
+        formula=f"Date = '{sTodayDate}'", 
+        sort=["-Date"], 
+        max_records=1
+    )
+    
+    # 2. Vérification si la liste est vide
+    if not records:
+        return []
+        
+    # 3. Récupération du premier enregistrement de la liste
+    record = records[0]
+    
+    activities = [
+        {
+            "title": "Rappel activité du jour - Matin",
+            "message": record["fields"].get("tache matin", "N/A"),
+            "type": "rappel"
+        },
+        {
+            "title": "Rappel activité du jour - Après-midi",
+            "message": record["fields"].get("tache aprem", "N/A"),
+            "type": "rappel"
+        }
+    ]
+
+    return activities
