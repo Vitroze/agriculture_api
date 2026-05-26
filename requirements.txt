@@ -1,0 +1,11 @@
+apscheduler
+beautifulsoup4
+bcrypt
+fastapi
+feedparser
+httpx
+pyairtable
+PyJWT
+python-dotenv
+requests
+uvicorn

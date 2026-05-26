@@ -138,6 +138,14 @@ def get_user_info(mail: str):
     
     return user
 
+types = [
+    "Objet Electronique",
+    "Fruits",
+    "Légumes",
+    "Animaux",
+    "Autres"
+]
+
 def get_inventory(current_user=None):
     if current_user is None:
         current_user = get_current_user()
@@ -154,60 +162,70 @@ def get_inventory(current_user=None):
             "Description": fields.get("description", "N/A"),
             "Quantity": fields.get("quantity", 0),
             "Total": fields.get("total", 0),
+            "Type": types[fields.get("type", 0)] if fields.get("type") is not None and 0 <= fields.get("type") < len(types) else "N/A",
+            "TypeNum": fields.get("type", "N/A"),
             "Date": fields.get("lastModify", "N/A")
         })
     return inventory
 
-def get_exist_item(name_item: str):
-    record = INVENTORY.first(formula=f"{{name}}='{name_item}'")
+def get_exist_item(user_mail: str, name_item: str):
+    record = INVENTORY.first(formula=f"AND({{userMail}}='{user_mail}', {{name}}='{name_item}')")
     return record
 
-def add_inventory_item(current_user: dict, name: str, description: str, quantity: int, total: float):
+def add_inventory_item(current_user: dict, name: str, description: str, quantity: int, total: float, type: int):
     if current_user is None:
         current_user = get_current_user()
         if current_user is None:
             return False
-    
+
     if not isinstance(quantity, int) or quantity < 0:
         return False
 
     if not isinstance(total, (float, int)) or total < 0:
         return False
-    
+
+    if type < 0 or type > 5:
+        return False
+
     INVENTORY.create({
         "userMail": current_user["fields"]["mail"],
         "name": name,
         "description": description,
         "quantity": quantity,
-        "total": total
+        "total": total,
+        "type": type
     })
     return True
 
-def update_inventory_item(current_user: dict, item_id: str, name: str, description: str, quantity: int, total: float):
+def update_inventory_item(current_user: dict, item_id: str, name: str, description: str, quantity: int, total: float, type: int):
     if current_user is None:
         current_user = get_current_user()
         if current_user is None:
             return False
-    
+
     if not isinstance(quantity, int) or quantity < 0:
         return False
-    
+
     if not isinstance(total, (float, int)) or total < 0:
         return False
-    
+
+    if type < 0 or type > 5:
+        return False
+
     item = INVENTORY.get(item_id)
     if not item or item["fields"].get("userMail") != current_user["fields"]["mail"]:
         return False
 
     nameItem = item["fields"].get("name", "")    
-    if nameItem != name and get_exist_item(name) is not None:
+    if nameItem != name and get_exist_item(current_user["fields"]["mail"], name) is not None:
         return False
 
     INVENTORY.update(item_id, {
         "name": name,
         "description": description,
         "quantity": quantity,
-        "total": total
+        "total": total,
+        "type": type
     })
     return True
 

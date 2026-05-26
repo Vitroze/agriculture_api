@@ -532,13 +532,14 @@ class UpdateInventoryRequest(BaseModel):
     description: str
     quantity: int
     total: int
+    type: int
 @app.post("/update_inventory", summary="Update User Inventory", description="Update the inventory of the authenticated user.")
 
 async def update_inventory(request: UpdateInventoryRequest, current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if not Users.update_inventory_item(current_user, request.idInventory, request.name, request.description, request.quantity, request.total):
+    if not Users.update_inventory_item(current_user, request.idInventory, request.name, request.description, request.quantity, request.total, request.type):
         raise HTTPException(status_code=500, detail="Failed to update inventory")
 
     return {"message": "Inventory updated successfully"}
@@ -548,15 +549,17 @@ class AddInventoryItemRequest(BaseModel):
     description: str
     quantity: int
     total: int
+    type: int
+
 @app.post("/add_inventory_item", summary="Add Inventory Item", description="Add a new item to the inventory of the authenticated user.")
 async def add_inventory_item(request: AddInventoryItemRequest, current_user: dict = Depends(Users.get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if Users.get_exist_item(current_user, request.name):
+    if Users.get_exist_item(current_user["fields"]["mail"], request.name):
         raise HTTPException(status_code=400, detail="Item with the same name already exists in inventory")
 
-    if not Users.add_inventory_item(current_user, request.name, request.description, request.quantity, request.total):
+    if not Users.add_inventory_item(current_user, request.name, request.description, request.quantity, request.total, request.type):
         raise HTTPException(status_code=500, detail="Failed to add inventory item")
 
     return {"message": "Inventory item added successfully"}
@@ -601,6 +604,36 @@ def receive_activities(request: WebhookRequest, current_user: dict = Depends(Use
             raise HTTPException(status_code=500, detail="Error sending activities to webhook")
 
     raise HTTPException(status_code=200, detail="Activities sent successfully")
+
+@app.get("/get_notifications", summary="Get User Notifications", description="Retrieve the notifications of the authenticated user.")
+async def get_notifications(current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Return Notify 
+    # {
+    #     {
+    #         "title": "Alerte Météo",
+    #         "message": "Une alerte de vent violent a été détectée dans votre région. Prenez les précautions nécessaires.",
+    #         "type": "warning" # Type : meteo-rouge, meteo-orange, rappel, succes, info
+    # }
+
+    meteo_alerts = []
+    print(current_user["fields"].get("latitude"), current_user["fields"].get("longitude"))
+    if current_user["fields"].get("latitude") and current_user["fields"].get("longitude"):
+        alertes = await verifier_alertes_temps_reel(current_user["fields"]["latitude"], current_user["fields"]["longitude"])
+        print(f"Alertes météo récupérées pour l'utilisateur {current_user['fields']['mail']}: {alertes}")
+        if alertes.get("risques_en_cours") and isinstance(alertes["risques_en_cours"], list):
+            for alerte in alertes["risques_en_cours"]:
+                print(f"Processing alert: {alerte}")
+                if alerte.get("niveau") in ["Rouge", "Orange", "Jaune"]:
+                    meteo_alerts.append({
+                        "title": f"Alerte Météo: {alerte.get('phenomene')}",
+                        "message": f"Une alerte de niveau {alerte.get('niveau')} a été détectée pour {alerte.get('phenomene')}. {alerte.get('conseil')}",
+                        "type": f"meteo-{alerte.get('niveau').lower()}"
+                    })
+
+    return {"notifications": meteo_alerts}
 
 if __name__ == "__main__":
     import uvicorn
