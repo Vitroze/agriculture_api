@@ -526,6 +526,26 @@ async def get_inventory(current_user: dict = Depends(Users.get_current_user)):
 
     return {"inventory": Users.get_inventory(current_user)}
 
+@app.get("/get_inventory_for_dropdown", summary="Get Inventory for Dropdown", description="Retrieve the inventory of the authenticated user formatted for dropdown selection.")
+async def get_inventory_for_dropdown(current_user: dict = Depends(Users.get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    inventory = Users.get_inventory(current_user)
+    # dropdown_options = [
+    #     {"Label": item["Title"], "Value": item["id"]}
+    #     for item in inventory
+    # ]
+
+    dropdown_options = []
+    for item in inventory:
+        print(item["Title"], item["Quantity"], item["TypeNum"])
+        if item["Quantity"] > 0 and int(item["TypeNum"]) >= 1 and int(item["TypeNum"]) <= 3:
+            print(f"Adding item to dropdown: {item['Title']} (ID: {item['id']})")
+            dropdown_options.append({"Label": item["Title"], "Value": item["id"], "Type": item["Type"]})
+
+    return {"options": dropdown_options}
+
 class UpdateInventoryRequest(BaseModel):
     idInventory: str
     name: str
